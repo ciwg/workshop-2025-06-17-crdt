@@ -1,5 +1,4 @@
- # CRDTs for Collaborative Editors
-
+CRDTs for Collaborative Editors
 
 By JJ Salley
 
@@ -8,7 +7,7 @@ By JJ Salley
 ## Welcome
 
 This talk will cover **CRDTs**, or Conflict-Free Replicated Data Types.\
-They sound scary, but don’t worry—we’ll break them down clearly.
+They sound technical, but we’ll walk through how they work step by step—with real examples.
 
 ---
 
@@ -28,9 +27,9 @@ This is what CRDTs make possible.
 ## Theory of CRDTs (Gently Introduced)
 
 **CRDT** = Conflict-Free Replicated Data Type\
-That’s a fancy way of saying:
+That means:
 
-> "A shared document you can edit at the same time as someone else without breaking it."
+> "A way to let multiple users change shared data at the same time without needing to check with each other."
 
 ---
 
@@ -39,40 +38,30 @@ That’s a fancy way of saying:
 ### The Naive Way: Shared Array of Bytes
 
 - Think: a text file shared through Dropbox
-- If two people change it at once: 💥 Conflict!
+- If two people change it at once: it breaks or someone loses data
 
 ### The CRDT Way
 
-- Each edit is recorded **with intent**
-- Even if edits happen at the same time, they merge safely and consistently
-
----
-
-## Metaphor Time
-
-Imagine you’re playing LEGO with a friend:
-
-- You each add blocks without seeing each other
-- Later, you connect your builds
-- CRDTs make sure your blocks don’t overwrite each other—they fit together logically
+- Each user makes changes independently
+- The system tracks **intent**, **timing**, and **authorship**
+- Later, it can merge everyone’s changes consistently
 
 ---
 
 ## CRDTs Merge Concurrent Edits — How?
 
 - Every edit includes:
-  - **Who did it**
-  - **What they did**
-  - **When they did it**
-- The system builds a timeline of edits—even when out of order
-- All users end up with the same final result
+  - **Who did it** (client ID)
+  - **What they did** (insert, delete)
+  - **When they did it** (clock)
+- The system uses this info to build a timeline of edits—even if received out of order
 
 **Example:**
 
 ```js
 A inserts "Hi" at position 0
 B inserts "There" at position 0
-→ CRDT merges as: "ThereHi" or "HiThere", but always the same on all devices
+→ CRDT merges as: "ThereHi" or "HiThere", but always the same everywhere
 ```
 
 ---
@@ -84,20 +73,20 @@ B inserts "There" at position 0
 - Devices send each other their **whole state**
 - Merge = combine states (usually with some max or union)
 
-🧠 Easy to reason about\
-⚠️ Can be heavy on bandwidth
+Simple concept
+More bandwidth required
 
 ### 2. Operation-based (CmRDT)
 
 - Devices send only the **changes** they made
-- Requires operations to arrive in the right order
+- Order matters or must be recoverable
 
-🧠 Efficient\
-⚠️ Needs reliable messaging
+Efficient
+More logic required
 
 ---
 
-### Operation-based (CmRDT) Characteristics – Matches Yjs:
+## Operation-based (CmRDT) Characteristics – Matches Yjs:
 
 ```text
 Replicas send operations, not full state
@@ -115,32 +104,29 @@ Efficient: only the deltas are shared
 
 ---
 
-## How Does Yjs Work? (Approachable)
+## How Does Yjs Work? 
 
-**Yjs** is a JavaScript library that brings CRDT magic to web apps.\
-It powers tools like Tiptap and ProseMirror for rich-text collaboration.
+**Yjs** is a JavaScript library for collaborative editing.
 
-### Basic Building Block:
+### It uses:
 
-- A shared document called a `Y.Doc`
-- Contains shared types: `Y.Text`, `Y.Array`, etc.
+- A document container (`Y.Doc`)
+- Shared types: `Y.Text`, `Y.Array`, `Y.Map`, `Y.XmlFragment`
+- Syncs changes across peers using binary updates
 
 ---
 
 ## How Yjs Works Internally (More Technical)
 
-- Uses a CRDT called **YATA** (Yet Another Transformation Approach)
-- Each operation (insert/delete) gets:
-  - A **unique ID** (client + clock)
-  - Causal ordering based on previous edits
-- Binary encoded updates are sent between peers
+- Uses a CRDT algorithm called **YATA** (Yet Another Transformation Approach)
+- Edits are structured as **Items**
+  - Each has a unique `client + clock` ID
+  - Causal dependencies tracked via `left`, `right`, and `origin`
+  - Can be inserts, deletes, or format changes
 
 ---
 
 ## What Is the Message Format in Yjs?
-
-All communication is compact binary messages.\
-These are fast and efficient!
 
 ### Message Types:
 
@@ -150,7 +136,7 @@ These are fast and efficient!
 2 = awareness (cursor, name)
 ```
 
-Payload is encoded with `Uint8Array`.
+Payloads are sent as compact binary chunks.
 
 ---
 
@@ -158,211 +144,143 @@ Payload is encoded with `Uint8Array`.
 
 By default:
 
-- **Nothing!**
-- The server only **relays** updates between users
-- All data lives in the browser/app memory
+- **Nothing**
+- It relays updates between clients
 
-Optional:
+You can add optional storage using:
 
-- You can plug in storage like:
-  - LevelDB (Node.js)
-  - IndexedDB (browser)
-  - Redis (server-side)
+- LevelDB (Node)
+- Redis
+- IndexedDB (browser).  I am doing this.
 
 ---
 
 ## What Might We Use Instead of Yjs?
 
-| Option                | Pros                     | Cons                            |
-| --------------------- | ------------------------ | ------------------------------- |
-| **Automerge**         | Simple, JSON-friendly    | Big data size, slower sync      |
-| **Diamond Types**     | Fast for text editing    | Not for rich documents          |
-| **Peritext**          | Semantic-rich (research) | Experimental                    |
-| **OT (e.g. ShareDB)** | Battle-tested            | Complex, requires central logic |
+| Option                | Pros                     | Cons                        |
+| --------------------- | ------------------------ | --------------------------- |
+| **Automerge**         | Simple, JSON-friendly    | Big data size, slower sync  |
+| **Diamond Types**     | Fast for text editing    | Not for rich documents      |
+| **Peritext**          | Semantic-rich (research) | Experimental                |
+| **OT (e.g. ShareDB)** | Battle-tested            | Centralized logic, not CRDT |
 
 ---
 
-## 🧬 What a Yjs CRDT Looks Like in Binary
+## Yjs Binary Snapshot
 
-Let’s meet the rawest version of the CRDT: the **encoded binary update** itself.
-
-> Imagine saving your shared document as bytes. That’s what Yjs snapshots do.
-
-### Here’s a real update:
+This is the raw CRDT state encoded into a binary array:
 
 ```js
-update = [
-  29, 1, 234, 193, 136, 128, 15, 0, 0, 12, 6, 145, 219, 189, 208, 14, 0, 129, 207, 243, 179, 142,
-  14, 23, 4, 129, 207, 243, 179, 142, 14, 0, 1, 0, 19, 129, 145, 219, 189, 208, 14, 4, 1, 0, 15,
-  ...
-  20, 194, 220, 132, 17, 1, 0, 19, 242, 149, 217, 22, 1, 0, 17
-]
+[29, 1, 234, 193, 136, 128, 15, ...]
 ```
 
-Don’t worry if that looks intense.
+What’s inside:
 
-Here’s what it really means:
+- Edits (as Items)
+- Metadata (client IDs, clocks)
+- Structure and ordering
 
-- It’s a compact binary encoding of **many individual Yjs operations**.
-- Each block corresponds to an "Item" in the CRDT—an insert, a delete, a parent-child relation, etc.
-- When you load this into a `Y.Doc`, it reconstructs the full shared state of the document, including text, attributes, positions, and structure.
-
-Why binary?
-
-- To reduce network size.
-- To increase speed of syncs.
-- To let peers exchange just the **minimum changes needed**.
-
-This snapshot and its byte string are part of the **core of real-world CRDT collaboration**.
+You can **load it into Y.Doc** to rebuild the document fully.
 
 ---
 
-## 📂 Yjs Snapshot File: What's Inside?
+## Yjs Snapshot File: What’s Inside?
 
-Before we look at the live CRDT structure from our app, let’s look at something even more concrete: a real Yjs **snapshot file**.
+A `.ysnap.json` file contains:
 
-We saved a snapshot of our collaborative document in a file called:
+- A JSON object with a `Uint8Array` called `update`
+- That’s the binary CRDT update
 
-```bash
-snapshot-2025-06-09T21-33-54-052Z.ysnap.json
-```
+You can apply it to any new `Y.Doc` to see the full structure.
 
-This snapshot contains a compact binary representation of the **entire CRDT state** at a particular point in time. It’s structured as an encoded update array — a `Uint8Array`, to be precise.
+---
 
-### 🔍 What’s Actually In the File?
+## Also In Practice: `verifyfilestructure.js`
 
-This file contains:
+We also use:
 
-- **Encoded client and clock info** for each operation
-- **Structs** representing inserts, deletes, and content
-- All operations tagged with their **unique origin** and causal order
-- **Parent-child structure**, even for ProseMirror XML elements
+- `verifyfilestructure.js` to print the full CRDT structure
+- Outputs every `Item`, its parent/child links, content, and deletion status
 
-You’ll see identifiers like:
+It shows the **graph** of Items and how Yjs stores them.
+
+---
+
+## Real CRDT Snapshot (From Our App)
+
+We saved one of these snapshots from our editor:
 
 ```js
-id: { client: 3392198051, clock: 0 }
-content: ContentType { type: [YXmlElement] }
-content: ContentDeleted
+→ prosemirror: YXmlFragment
+→ default: AbstractType
 ```
 
-These match exactly what we’ll see in the next section: the live CRDT data structure.
-
-This snapshot format can be:
-
-- **Saved to disk**
-- **Loaded into another Y.Doc**
-- **Synced across peers** to rebuild the exact state
-
-Let’s now look at how this file maps directly to the internal CRDT graph.
+`prosemirror` holds the actual document.
 
 ---
 
-## 🔍 Real CRDT Snapshot (From Our App)
+## What Is Inside the prosemirror CRDT?
 
-We captured a live snapshot from our Yjs-powered editor. Let’s walk through the **actual CRDT structure**.
-
----
-
-### 🎯 Context
-
-In our app, we use two shared types:
-
-```js
-→ prosemirror: AbstractType   // our actual collaborative document
-→ default: AbstractType       // an unused placeholder
-```
-
-Both are CRDTs managed by Yjs.
-
----
-
-### 📐 The CRDT Structure
-
-Each Yjs shared type (e.g., `prosemirror`) is made of `Items`.\
-An `Item` represents an operation (insert or delete) with a unique ID and structure:
+Each element is a Yjs `Item`, like this:
 
 ```js
 Item {
-  id: ID { client: 3392198051, clock: 0 },
+  id: { client: 12345, clock: 0 },
   content: ContentType { type: [YXmlElement] },
-  right: Item {
-    id: ID { client: 3788306895, clock: 0 },
-    content: ContentDeleted
-  },
-  parent: prosemirror
+  right: Item { content: ContentDeleted }
 }
 ```
 
----
-
-### 🔑 CRDT Features in Action
-
-| Feature                        | Snapshot Evidence                               |
-| ------------------------------ | ----------------------------------------------- |
-| **Unique ID**                  | `client: 3392198051, clock: 0`                  |
-| **Causal order**               | `right` and `origin` pointers                   |
-| **Mergeable**                  | Every Item connects via `left`/`right`          |
-| **Tombstoned deletes**         | `content: ContentDeleted`                       |
-| **No central source of truth** | Sync happens across peers, not through a server |
+These Items connect in a chain and form a causal graph.
 
 ---
 
-### 🤯 Why This Matters
+## CRDT Properties in Action
 
-Even if clients:
-
-- edit offline,
-- come back later, or
-- edit the same spot...
-
-The structure ensures that every update merges **without conflict**.
+| Property          | What It Looks Like         |
+| ----------------- | -------------------------- |
+| Unique IDs        | `client + clock`           |
+| Causal ordering   | `left`, `right` references |
+| Mergeable         | Links between items        |
+| Deletions         | `ContentDeleted`           |
+| Distributed model | No server state            |
 
 ---
 
-### 🧼 About `default`
+## Unused CRDT Structures
 
-We also saw this in our snapshot:
+In our snapshot we also saw:
 
 ```js
 → default: AbstractType
-Item {
-  id: ID { client: 2356320008, clock: 58 },
-  content: ContentType { type: [YXmlElement] }
-}
 ```
 
-It exists because some Yjs APIs create unnamed shared types automatically.\
-It’s unused in our case, and safe to ignore.
+It’s empty or unused — a placeholder. Safe to ignore.
 
 ---
 
-## 🧠 In Summary
+## In Practice: Our Snapshot Viewer
 
-This is a real CRDT:
+We built a tool called `snapshot-viewer.js`:
 
-- It’s how **Yjs implements collaboration**
-- Your editor state is a **graph of causally linked Items**
-- Each client maintains its own view — but merges happen without conflict
+- Loads a `.ysnap.json` file
+- Parses the binary update
+- Reconstructs the CRDT
+- Prints the contents of shared types (`Y.Text`, `Y.XmlFragment`, etc.)
 
-**You just saw the internal structure behind real-time collaboration.**
+```bash
+node snapshot-viewer.js snapshot-2025-06-09T21-33-54-052Z.ysnap.json
+```
 
 ---
 
-## Summary (Non-Technical + Technical Together)
 
-CRDTs:
+## Recap: CRDTs and Yjs
 
-- Let people edit offline and sync later
-- Merge changes automatically without drama
-- Are the backbone of collaborative editing tools
-
-Yjs:
-
-- A fast, lean CRDT implementation in JavaScript
-- Works well with ProseMirror/Tiptap
-- Communicates via binary messages
-- Stores no user data by default
+- CRDTs allow multiple people to **edit at the same time**, even offline
+- Yjs encodes these edits as compact binary **Items** with metadata
+- No server needed — everything lives on the client
+- Tools like `snapshot-viewer.js` and `verifyfilestructure.js` let us inspect the real structure
 
 ---
 
@@ -377,6 +295,5 @@ Yjs:
 
 ## Thank You!
 
-Questions?\
-Let's break it down further if needed!
+Questions? 
 
