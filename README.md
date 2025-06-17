@@ -1,6 +1,6 @@
  # CRDTs for Collaborative Editors
 
-A presentation in markdown format\
+
 By JJ Salley
 
 ---
